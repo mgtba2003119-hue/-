@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 import Datastore from "nedb-promises";
 import crypto from "crypto";
 import { initializeApp } from "firebase/app";
-import { getFirestore, initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
+import { getFirestore, initializeFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, query, where } from "firebase/firestore";
 import archiver from "archiver";
 import net from "net";
 
@@ -140,14 +140,98 @@ try {
 }
 
 // Ensure local data directory exists for NeDB
-const dataDir = process.env.USER_DATA_PATH 
-  ? path.join(process.env.USER_DATA_PATH, 'ClinicFlowData')
-  : path.join(process.cwd(), 'data');
+// We prioritize a highly accessible, visible local drive folder on Windows so the doctor can easily copy, back up, and secure their database.
+let dataDir = "";
+
+if (process.platform === "win32") {
+  // On Windows, use the User's Home Profile directory (e.g., C:\Users\<Username>\ClinicFlow_Database)
+  // This is highly visible on the computer's physical hard drive, easily accessible, protected from AppData hiding, 
+  // fully writable/immune to administrative blocks, and perfectly persistent across system updates.
+  const userHome = process.env.USERPROFILE || process.env.HOMEPATH || "";
+  if (userHome) {
+    dataDir = path.join(userHome, "ClinicFlow_Database");
+  } else {
+    dataDir = "C:\\ClinicFlow_Database";
+  }
+} else {
+  // Standard Unix/OSX USER_DATA_PATH or fallback to local directory
+  dataDir = process.env.USER_DATA_PATH 
+    ? path.join(process.env.USER_DATA_PATH, 'ClinicFlowData')
+    : path.join(process.cwd(), 'data');
+}
+
+// Automatic Data Migration from older versions/hidden folders to the visible Hard Drive folder
+try {
+  // Identify possible old data origin paths
+  const oldCwdDataDir = path.join(process.cwd(), 'data');
+  const oldAppDataDir = process.env.USER_DATA_PATH ? path.join(process.env.USER_DATA_PATH, 'ClinicFlowData') : "";
+  
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+    console.log("Created visible hard drive data folder at:", dataDir);
+  }
+
+  // Safe file copy helper
+  const dbFiles = ['patients.db', 'appointments.db', 'visits.db', 'settings.db', 'invites.db'];
+  dbFiles.forEach(dbFile => {
+    const targetFile = path.join(dataDir, dbFile);
+    
+    // If the file does not exist in the new visible directory, check if it exists in the old directories
+    if (!fs.existsSync(targetFile)) {
+      let sourceFile = "";
+      
+      if (oldAppDataDir && fs.existsSync(path.join(oldAppDataDir, dbFile))) {
+        sourceFile = path.join(oldAppDataDir, dbFile);
+      } else if (fs.existsSync(path.join(oldCwdDataDir, dbFile))) {
+        sourceFile = path.join(oldCwdDataDir, dbFile);
+      }
+      
+      if (sourceFile) {
+        console.log(`[Database Migration] Migrating existing local data from ${sourceFile} to ${targetFile}`);
+        fs.copyFileSync(sourceFile, targetFile);
+      }
+    }
+  });
+
+  // Migrating existing daily backups too so there is no history lost
+  const oldBackupDirs = [
+    oldAppDataDir ? path.join(oldAppDataDir, 'backups') : "",
+    path.join(oldCwdDataDir, 'backups')
+  ].filter(Boolean);
+
+  const targetBackupDir = path.join(dataDir, 'backups');
+  if (!fs.existsSync(targetBackupDir)) {
+    fs.mkdirSync(targetBackupDir, { recursive: true });
+  }
+
+  oldBackupDirs.forEach(oldBackupDir => {
+    if (oldBackupDir && fs.existsSync(oldBackupDir)) {
+      try {
+        const files = fs.readdirSync(oldBackupDir);
+        files.forEach(f => {
+          if (f.endsWith('.db')) {
+            const srcBkp = path.join(oldBackupDir, f);
+            const dstBkp = path.join(targetBackupDir, f);
+            if (!fs.existsSync(dstBkp)) {
+              fs.copyFileSync(srcBkp, dstBkp);
+            }
+          }
+        });
+      } catch (backupMigErr) {
+        console.warn("[Database Migration] Failed migrating backup subfolder:", backupMigErr);
+      }
+    }
+  });
+
+} catch (err) {
+  console.error("[Database Migration] Critical error during automatic hard drive path migration:", err);
+}
+
 try {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
-    console.log("Created data directory at:", dataDir);
   }
+  console.log("Active Database directory set to:", dataDir);
 } catch (err) {
   console.error("Failed to create data directory:", err);
 }
@@ -602,28 +686,88 @@ async function startServer() {
 
   // Patients
   app.get("/api/patients", async (req, res) => {
+    let patients: any[] | null = null;
     try {
-      const data = await localDb.patients.find({}).sort({ createdAt: -1 });
-      res.json(data);
-    } catch (err) { res.status(500).json(err); }
+      if (firestoreDb) {
+        const patientsCol = collection(firestoreDb, "patients");
+        const patientsSnapshot = await getDocs(patientsCol);
+        patients = patientsSnapshot.docs.map(docSnap => {
+          const docData = docSnap.data();
+          const record = { ...docData, _id: docSnap.id };
+          return record;
+        });
+
+        // Update local NeDB in sync asynchronously as a cache
+        for (const p of patients) {
+          localDb.patients.update({ _id: p._id }, { $set: p }, { upsert: true }).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.warn("Firestore error in GET /api/patients inside server, checking local NeDB fallback:", err);
+    }
+
+    if (patients === null) {
+      try {
+        patients = await localDb.patients.find({}).sort({ createdAt: -1 });
+      } catch (localErr) {
+        patients = [];
+      }
+    } else {
+      // Sort patients by createdAt descending to match expectations
+      patients.sort((a, b) => {
+        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dbVal = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dbVal - da;
+      });
+    }
+
+    res.json(patients);
   });
 
   app.get("/api/patients/:id", async (req, res) => {
+    let patient: any = null;
     try {
-      const data = await localDb.patients.findOne({ _id: req.params.id });
-      res.json(data);
-    } catch (err) { res.status(500).json(err); }
+      if (firestoreDb) {
+        const docRef = doc(firestoreDb, "patients", req.params.id);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          patient = { ...docSnap.data(), _id: docSnap.id };
+          // Keep local NeDB in sync
+          await localDb.patients.update({ _id: req.params.id }, { $set: patient }, { upsert: true });
+        }
+      }
+    } catch (err) {
+      console.warn(`Firestore error in GET /api/patients/${req.params.id}, checking local NeDB fallback:`, err);
+    }
+
+    if (!patient) {
+      try {
+        patient = await localDb.patients.findOne({ _id: req.params.id });
+      } catch (localErr) {
+        patient = null;
+      }
+    }
+
+    if (!patient) {
+      res.status(404).json({ error: "المريض غير موجود" });
+    } else {
+      res.json(patient);
+    }
   });
 
   app.post("/api/patients", async (req, res) => {
     try {
-      const patientData = { ...req.body, createdAt: new Date() };
+      // Ensure we preserve the phone number and fields exactly
+      const patientData = { ...req.body, createdAt: new Date().toISOString() };
       const newDoc = await localDb.patients.insert(patientData);
       
-      // Async/Safe Cloud Firestore Sync
+      // Sync to cloud Firestore immediately and synchronously so we don't return until it's saved in the cloud
       if (firestoreDb) {
-        setDoc(doc(firestoreDb, "patients", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() })
-          .catch(err => console.log(`[Cloud Sync] Sync pending or offline (local state successfully preserved in NeDB): ${err.message || err}`));
+        try {
+          await setDoc(doc(firestoreDb, "patients", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() });
+        } catch (fErr) {
+          console.warn("[Cloud Sync Error] Failed to write new patient to Firestore, continuing with NeDB:", fErr);
+        }
       }
       res.json(newDoc);
     } catch (err) { res.status(500).json(err); }
@@ -633,10 +777,12 @@ async function startServer() {
     try {
       await localDb.patients.remove({ _id: req.params.id }, {});
       
-      // Async/Safe Cloud Firestore Delete
       if (firestoreDb) {
-        deleteDoc(doc(firestoreDb, "patients", req.params.id))
-          .catch(err => console.log(`[Cloud Sync] Deletion pending or offline (local state successfully deleted in NeDB): ${err.message || err}`));
+        try {
+          await deleteDoc(doc(firestoreDb, "patients", req.params.id));
+        } catch (fErr) {
+          console.warn("[Cloud Sync Error] Failed to delete patient from Firestore:", fErr);
+        }
       }
       res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -646,10 +792,12 @@ async function startServer() {
     try {
       await localDb.patients.update({ _id: req.params.id }, { $set: req.body });
       
-      // Async/Safe Cloud Firestore Update
       if (firestoreDb) {
-        setDoc(doc(firestoreDb, "patients", req.params.id), { ...req.body, id: req.params.id, syncedAt: new Date().toISOString() }, { merge: true })
-          .catch(err => console.log(`[Cloud Sync] Update pending or offline (local state successfully updated in NeDB): ${err.message || err}`));
+        try {
+          await setDoc(doc(firestoreDb, "patients", req.params.id), { ...req.body, id: req.params.id, syncedAt: new Date().toISOString() }, { merge: true });
+        } catch (fErr) {
+          console.warn("[Cloud Sync Error] Failed to update patient in Firestore:", fErr);
+        }
       }
       res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -657,21 +805,53 @@ async function startServer() {
 
   // Appointments
   app.get("/api/appointments", async (req, res) => {
+    let appointments: any[] | null = null;
     try {
-      const data = await localDb.appointments.find({}).sort({ date: 1 });
-      res.json(data);
-    } catch (err) { res.status(500).json(err); }
+      if (firestoreDb) {
+        const apptsCol = collection(firestoreDb, "appointments");
+        const snapshot = await getDocs(apptsCol);
+        appointments = snapshot.docs.map(docSnap => ({
+          ...docSnap.data(),
+          _id: docSnap.id
+        }));
+
+        // Keep local NeDB in sync
+        for (const a of appointments) {
+          localDb.appointments.update({ _id: a._id }, { $set: a }, { upsert: true }).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.warn("Firestore error in GET /api/appointments, checking local NeDB fallback:", err);
+    }
+
+    if (appointments === null) {
+      try {
+        appointments = await localDb.appointments.find({}).sort({ date: 1 });
+      } catch (localErr) {
+        appointments = [];
+      }
+    } else {
+      appointments.sort((a, b) => {
+        const da = a.date ? new Date(a.date).getTime() : 0;
+        const dbVal = b.date ? new Date(b.date).getTime() : 0;
+        return da - dbVal;
+      });
+    }
+
+    res.json(appointments);
   });
 
   app.post("/api/appointments", async (req, res) => {
     try {
-      const apptData = { ...req.body, createdAt: new Date() };
+      const apptData = { ...req.body, createdAt: new Date().toISOString() };
       const newDoc = await localDb.appointments.insert(apptData);
       
-      // Async/Safe Cloud Firestore Sync
       if (firestoreDb) {
-        setDoc(doc(firestoreDb, "appointments", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() })
-          .catch(err => console.log(`[Cloud Sync] Appointment sync pending or offline (local state successfully preserved in NeDB): ${err.message || err}`));
+        try {
+          await setDoc(doc(firestoreDb, "appointments", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() });
+        } catch (fErr) {
+          console.warn("[Cloud Sync Error] Failed to write appointment to Firestore:", fErr);
+        }
       }
       res.json(newDoc);
     } catch (err) { res.status(500).json(err); }
@@ -681,10 +861,12 @@ async function startServer() {
     try {
       await localDb.appointments.remove({ _id: req.params.id }, {});
       
-      // Async/Safe Cloud Firestore Delete
       if (firestoreDb) {
-        deleteDoc(doc(firestoreDb, "appointments", req.params.id))
-          .catch(err => console.log(`[Cloud Sync] Appointment deletion pending or offline (local state successfully deleted in NeDB): ${err.message || err}`));
+        try {
+          await deleteDoc(doc(firestoreDb, "appointments", req.params.id));
+        } catch (fErr) {
+          console.warn("[Cloud Sync Error] Failed to delete appointment from Firestore:", fErr);
+        }
       }
       res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -695,10 +877,12 @@ async function startServer() {
       const { status } = req.body;
       await localDb.appointments.update({ _id: req.params.id }, { $set: { status } });
       
-      // Async/Safe Cloud Firestore Update
       if (firestoreDb) {
-        setDoc(doc(firestoreDb, "appointments", req.params.id), { status, syncedAt: new Date().toISOString() }, { merge: true })
-          .catch(err => console.log(`[Cloud Sync] Appointment status update pending or offline (local state successfully updated in NeDB): ${err.message || err}`));
+        try {
+          await setDoc(doc(firestoreDb, "appointments", req.params.id), { status, syncedAt: new Date().toISOString() }, { merge: true });
+        } catch (fErr) {
+          console.warn("[Cloud Sync Error] Failed to update appointment status in Firestore:", fErr);
+        }
       }
       res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -706,21 +890,54 @@ async function startServer() {
 
   // Visits
   app.get("/api/visits/:patientId", async (req, res) => {
+    let visits: any[] | null = null;
     try {
-      const data = await localDb.visits.find({ patientId: req.params.patientId }).sort({ date: -1 });
-      res.json(data);
-    } catch (err) { res.status(500).json(err); }
+      if (firestoreDb) {
+        const visitsCol = collection(firestoreDb, "visits");
+        const q = query(visitsCol, where("patientId", "==", req.params.patientId));
+        const snapshot = await getDocs(q);
+        visits = snapshot.docs.map(docSnap => ({
+          ...docSnap.data(),
+          _id: docSnap.id
+        }));
+
+        // Keep local NeDB in sync
+        for (const v of visits) {
+          localDb.visits.update({ _id: v._id }, { $set: v }, { upsert: true }).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.warn(`Firestore error in GET /api/visits/${req.params.patientId}, checking local NeDB fallback:`, err);
+    }
+
+    if (visits === null) {
+      try {
+        visits = await localDb.visits.find({ patientId: req.params.patientId }).sort({ date: -1 });
+      } catch (localErr) {
+        visits = [];
+      }
+    } else {
+      visits.sort((a, b) => {
+        const da = a.date ? new Date(a.date).getTime() : 0;
+        const dbVal = b.date ? new Date(b.date).getTime() : 0;
+        return dbVal - da;
+      });
+    }
+
+    res.json(visits);
   });
 
   app.post("/api/visits", async (req, res) => {
     try {
-      const visitData = { ...req.body, date: new Date() };
+      const visitData = { ...req.body, date: new Date().toISOString() };
       const newDoc = await localDb.visits.insert(visitData);
       
-      // Async/Safe Cloud Firestore Sync
       if (firestoreDb) {
-        setDoc(doc(firestoreDb, "visits", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() })
-          .catch(err => console.log(`[Cloud Sync] Visit sync pending or offline (local state successfully preserved in NeDB): ${err.message || err}`));
+        try {
+          await setDoc(doc(firestoreDb, "visits", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() });
+        } catch (fErr) {
+          console.warn("[Cloud Sync Error] Failed to write visit to Firestore:", fErr);
+        }
       }
       res.json(newDoc);
     } catch (err) { res.status(500).json(err); }
@@ -730,10 +947,12 @@ async function startServer() {
     try {
       await localDb.visits.remove({ _id: req.params.id }, {});
       
-      // Async/Safe Cloud Firestore Delete
       if (firestoreDb) {
-        deleteDoc(doc(firestoreDb, "visits", req.params.id))
-          .catch(err => console.log(`[Cloud Sync] Visit deletion pending or offline (local state successfully deleted in NeDB): ${err.message || err}`));
+        try {
+          await deleteDoc(doc(firestoreDb, "visits", req.params.id));
+        } catch (fErr) {
+          console.warn("[Cloud Sync Error] Failed to delete visit from Firestore:", fErr);
+        }
       }
       res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -890,6 +1109,16 @@ async function startServer() {
         res.status(401).json({ error: "الرمز المدخل غير صحيح!" });
       }
     } catch (err) { res.status(500).json(err); }
+  });
+
+  // Return the physical path of the local database on the computer's hard drive
+  app.get("/api/database/info", (req, res) => {
+    res.json({
+      path: dataDir,
+      platform: process.platform,
+      isWindows: process.platform === "win32",
+      description: "المسار المباشر لقاعدة البيانات المحلية على القرص الصلب للحاسوب الشخصي"
+    });
   });
 
   // Database Backup list

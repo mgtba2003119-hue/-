@@ -781,5 +781,16 @@ export const apiService = {
       console.error("Failed to sync cloud to local:", err);
       return { success: false, error: String(err) };
     }
+  },
+
+  getDatabaseInfo: async () => {
+    try {
+      const res = await fetch(getApiUrl("/database/info"));
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
+    } catch (err) {
+      console.error("Failed to get database info:", err);
+      return { path: "data", isWindows: false };
+    }
   }
 };

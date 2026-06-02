@@ -81,11 +81,30 @@ function createWindow() {
   }
 
   // Loaded with the correct port dynamically
+  let retryCount = 0;
   const loadApp = () => {
     const port = getPort();
     const url = 'http://localhost:' + port;
     win.loadURL(url).catch((err) => {
+      retryCount++;
       console.log(`Server not ready on port ${port}, retrying in 1s... Error:`, err);
+      
+      if (retryCount === 15) {
+        try {
+          dialog.showErrorBox(
+            'فشل الاتصال بالخادم المحلي الداخلي',
+            'تعذر تشغيل أو الاتصال بخادم التطبيق بعد 15 ثانية.\n\n' +
+            'السبب المحتمل:\n' +
+            'فشلت عملية البناء وتصدير ملفات التطبيق (Build) على جهازك بسبب خطأ الروابط الرمزية (Symlinks) في نظام Windows الموضح باللون الأحمر في شاشة الـ CMD (A required privilege is not held by the client).\n\n' +
+            'طريقة الحل:\n' +
+            '١. قم بإغلاق نافذة الـ CMD الحالية.\n' +
+            '٢. افتح إعدادات الويندوز للويندوز 10 أو 11 -> ثم انتقل إلى "الخصوصية والأمان" -> ثم "للمطورين" (For Developers) -> وقم بتفعيل "وضع المطور" (Developer Mode).\n' +
+            '٣. أو بدلاً من ذلك، قم بتشغيل موجه الأوامر الـ CMD كمسؤول (Run as Administrator).\n' +
+            '٤. توجه لمجلد المشروع واكتب الأمر التالي لإعادة البناء: npm run build:win'
+          );
+        } catch (dialogErr) {}
+      }
+      
       setTimeout(loadApp, 1000);
     });
   };

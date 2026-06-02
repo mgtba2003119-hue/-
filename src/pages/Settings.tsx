@@ -72,6 +72,7 @@ export default function Settings() {
   const [autoBackups, setAutoBackups] = useState<any[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [dbInfo, setDbInfo] = useState<{ path: string; isWindows: boolean } | null>(null);
 
   useEffect(() => {
     fetchSettings();
@@ -133,6 +134,13 @@ export default function Settings() {
         setSlots(slotsRes.slots);
       } else {
         setSlots(["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "13:00", "13:30", "14:00", "14:30", "15:00", "16:00"]);
+      }
+
+      try {
+        const infoRes = await apiService.getDatabaseInfo();
+        if (infoRes) setDbInfo(infoRes);
+      } catch (e) {
+        console.warn("Failed to get database details in frontend:", e);
       }
     } catch (err) {
       console.error("Failed to load settings:", err);
@@ -862,80 +870,99 @@ export default function Settings() {
 
         {/* TAB 3: CLOUD SYNC & LOCAL DATABASES & ACCESS CODE */}
         {activeTab === "cloud" && (
-          <div className="divide-y divide-slate-100">
-            
-            {/* Section A: Google Cloud Sync Explanation & Button */}
-            <div className="p-6 md:p-8 space-y-6 bg-slate-50/50">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                    <Cloud className="text-blue-600" size={17} />
-                    المزامنة السحابية الذكية وحماية السجلات (Google Cloud Firestore)
-                  </h3>
-                  <p className="text-slate-500 text-[11px] font-semibold leading-relaxed max-w-2xl">
-                    حماية عيادتك من أي فقدان لملفات المرضى أو زياراتهم. عند تفعيل الاتصال بحساب Google، سيتم حفظ ومعالجة وسحب كافة التفاصيل من خوادم قوقل السحابية المؤمنة فوراً، مما يعني عدم ضياع أي سجل حتى لو تم تحديث المنصة أو مسح بيانات المتصفح أو تبديل الأجهزة.
-                  </p>
-                </div>
-              </div>
-
-              {!currentUser || currentUser.isAnonymous ? (
-                <div className="p-6 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="space-y-1 text-center sm:text-right">
-                    <h4 className="text-xs font-black text-slate-800">بروتوكول تفعيل خادم السحاب</h4>
-                    <p className="text-[11px] text-slate-400 font-semibold max-w-md">قم بربط حساب Google لتأمين الأجهزة ورفع السجلات التاريخية للعيادة فوراً وسحابياً.</p>
-                  </div>
-                  <button 
-                    onClick={signInWithGoogle}
-                    className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-sm text-xs w-full sm:w-auto justify-center"
-                  >
-                    <Globe size={15} />
-                    <span>تسجيل الدخول وربط Google Cloud</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-center justify-between p-4 bg-emerald-50 rounded-xl border border-emerald-100 gap-4">
-                    <div className="flex items-center gap-3">
-                      <img src={currentUser.photoURL || "/default-avatar.png"} referrerPolicy="no-referrer" className="w-10 h-10 rounded-full border border-white shadow-sm shrink-0" alt="Avatar" />
-                      <div>
-                        <p className="font-black text-emerald-900 text-xs">{currentUser.displayName || "الاسم غير محدد"}</p>
-                        <p className="text-[10px] font-bold text-emerald-600/70">{currentUser.email}</p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={logout}
-                      className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all w-full sm:w-auto"
-                    >
-                      <LogOut size={13} />
-                      <span>قطع الاتصال والمزامنة</span>
-                    </button>
-                  </div>
-
-                  <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl border border-emerald-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="divide-y divide-slate-100">
+                
+                {/* Section A: Google Cloud Sync Explanation & Button */}
+                <div className="p-6 md:p-8 space-y-6 bg-slate-50/50">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div className="space-y-1">
-                      <h4 className="font-black text-xs flex items-center gap-1.5 text-emerald-900">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        الحفظ السحابي التلقائي والآمن نشط الآن (Cloud Active)
-                      </h4>
-                      <p className="text-[11px] font-semibold text-emerald-700 leading-relaxed">
-                        كل إضافة لملف مريض، موعد، كشفيات أو جلسة أسنان جديدة يتم حفظها مباشرة على خادم جوجل مشفرة وآمنة تماماً، مما يحميك بنسبة 100% من ضياع معلومات المرضى عند أي تحديث للمواقع أو الخوادم.
+                      <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                        <Cloud className="text-blue-600" size={17} />
+                        المزامنة السحابية الذكية وحماية السجلات (Google Cloud Firestore)
+                      </h3>
+                      <p className="text-slate-500 text-[11px] font-semibold leading-relaxed max-w-2xl">
+                        حماية عيادتك من أي فقدان لملفات المرضى أو زياراتهم. عند تفعيل الاتصال بحساب Google، سيتم حفظ ومعالجة وسحب كافة التفاصيل من خوادم قوقل السحابية المؤمنة فوراً، مما يعني عدم ضياع أي سجل حتى لو تم تحديث المنصة أو مسح بيانات المتصفح أو تبديل الأجهزة.
                       </p>
                     </div>
-                    <button 
-                      onClick={triggerCloudSync}
-                      disabled={isSyncing}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-4 py-2 rounded-lg flex items-center gap-1 shadow-sm shrink-0 transition-all disabled:opacity-50"
-                    >
-                      <RefreshCw className={isSyncing ? "animate-spin" : ""} size={13} />
-                      <span>{isSyncing ? "جاري الرفع..." : "مزامنة اللحظة الحالية"}</span>
-                    </button>
                   </div>
-                </div>
-              )}
-            </div>
 
-            {/* Section B: Local Backup Manual Downloader & Imports */}
-            <div className="p-6 md:p-8 space-y-6">
+                  {!currentUser || currentUser.isAnonymous ? (
+                    <div className="p-6 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="space-y-1 text-center sm:text-right">
+                        <h4 className="text-xs font-black text-slate-800">بروتوكول تفعيل خادم السحاب</h4>
+                        <p className="text-[11px] text-slate-400 font-semibold max-w-md">قم بربط حساب Google لتأمين الأجهزة ورفع السجلات التاريخية للعيادة فوراً وسحابياً.</p>
+                      </div>
+                      <button 
+                        onClick={signInWithGoogle}
+                        className="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-sm text-xs w-full sm:w-auto justify-center"
+                      >
+                        <Globe size={15} />
+                        <span>تسجيل الدخول وربط Google Cloud</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex flex-col sm:flex-row items-center justify-between p-4 bg-emerald-50 rounded-xl border border-emerald-100 gap-4">
+                        <div className="flex items-center gap-3">
+                          <img src={currentUser.photoURL || "/default-avatar.png"} referrerPolicy="no-referrer" className="w-10 h-10 rounded-full border border-white shadow-sm shrink-0" alt="Avatar" />
+                          <div>
+                            <p className="font-black text-emerald-900 text-xs">{currentUser.displayName || "الاسم غير محدد"}</p>
+                            <p className="text-[10px] font-bold text-emerald-600/70">{currentUser.email}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={logout}
+                          className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all w-full sm:w-auto"
+                        >
+                          <LogOut size={13} />
+                          <span>قطع الاتصال والمزامنة</span>
+                        </button>
+                      </div>
+
+                      <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl border border-emerald-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <h4 className="font-black text-xs flex items-center gap-1.5 text-emerald-900">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            الحفظ السحابي التلقائي والآمن نشط الآن (Cloud Active)
+                          </h4>
+                          <p className="text-[11px] font-semibold text-emerald-700 leading-relaxed">
+                            كل إضافة لملف مريض، موعد، كشفيات أو جلسة أسنان جديدة يتم حفظها مباشرة على خادم جوجل مشفرة وآمنة تماماً، مما يحميك بنسبة 100% من ضياع معلومات المرضى عند أي تحديث للمواقع أو الخوادم.
+                          </p>
+                        </div>
+                        <button 
+                          onClick={triggerCloudSync}
+                          disabled={isSyncing}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-4 py-2 rounded-lg flex items-center gap-1 shadow-sm shrink-0 transition-all disabled:opacity-50"
+                        >
+                          <RefreshCw className={isSyncing ? "animate-spin" : ""} size={13} />
+                          <span>{isSyncing ? "جاري الرفع..." : "مزامنة اللحظة الحالية"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Database Folder Location Info on Hard Drive */}
+                {dbInfo && (
+                  <div className="mx-6 md:mx-8 mt-6 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100/70 flex flex-col justify-between items-start gap-4">
+                    <div className="space-y-1.5 w-full">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-100 text-blue-900">
+                        <Database size={11} />
+                        حفظ تجمّعي فوري على القرص الصلب (Hard Disk Storage)
+                      </span>
+                      <h4 className="text-xs font-black text-slate-800 mt-1">موقع حفظ البيانات وملفات قواعد البيانات الفعلي على حاسوبك الشخصي:</h4>
+                      <div className="bg-white/80 p-3 rounded-lg border border-slate-200/60 font-mono text-xs text-slate-800 text-left overflow-x-auto break-all">
+                        {dbInfo.path}
+                      </div>
+                      <p className="text-slate-500 text-[10px] font-bold leading-relaxed">
+                        جميع سجلات العيادة، المرضى، والمواعيد محفوظة بدقة وأمان تام داخل هذا المجلد على جهازك. يمكنك أخذ نسخة احتياطية من المجلد ونقله لقرص خارجي أو فلاش ميموري (Flash Memory) متى شئت لضمان عدم ضياع أي سجل للعيادة مطلقاً.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Section B: Local Backup Manual Downloader & Imports */}
+                <div className="p-6 md:p-8 space-y-6">
               <div>
                 <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
                   <Database size={16} className="text-indigo-600" />
