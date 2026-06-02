@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Specific Validation Blueprints ---
+    function isValidPatient(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 250
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 100))
+        && (!('gender' in data) || (data.gender is string && data.gender.size() <= 50))
+        && (!('balance' in data) || (data.balance is string || data.balance is number || data.balance is int))
+        && (!('age' in data) || (data.age is number || data.age is int || data.age is string))
+        && (!('chronicDiseases' in data) || (data.chronicDiseases is string && data.chronicDiseases.size() <= 100000))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 100000));
+    }
+
+    function isValidAppointment(data) {
+      return data.patientId is string && data.patientId.size() <= 128
+        && data.date is string && data.date.size() <= 50
+        && data.time is string && data.time.size() <= 50
+        && (!('patientName' in data) || (data.patientName is string && data.patientName.size() <= 250))
+        && (!('category' in data) || (data.category is string && data.category.size() <= 100))
+        && (!('reason' in data) || (data.reason is string && data.reason.size() <= 5000))
+        && (!('treatment' in data) || (data.treatment is string && data.treatment.size() <= 5000))
+        && (!('status' in data) || (data.status is string && data.status.size() <= 100));
+    }
+
+    function isValidVisit(data) {
+      return data.patientId is string && data.patientId.size() <= 128
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 100000))
+        && (!('symptoms' in data) || (data.symptoms is string && data.symptoms.size() <= 100000))
+        && (!('aiSummary' in data) || (data.aiSummary is string && data.aiSummary.size() <= 100000))
+        && (!('diagnosis' in data) || (data.diagnosis is string && data.diagnosis.size() <= 5000))
+        && (!('cost' in data) || (data.cost is number || data.cost is int || data.cost is string))
+        && (!('paid' in data) || (data.paid is number || data.paid is int || data.paid is string));
+    }
+
+    function isValidSetting(data) {
+      return data.type is string && data.type.size() <= 100;
+    }
+
+    // --- Collection Routes Matching ---
+
+    // 1. Patients Collection
+    match /patients/{patientId} {
+      allow read, write: if true;
+    }
+
+    // 2. Appointments Collection
+    match /appointments/{appointmentId} {
+      allow read, write: if true;
+    }
+
+    // 3. Visits Collection
+    match /visits/{visitId} {
+      allow read, write: if true;
+    }
+
+    // 4. Settings Collection
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+  }
+}

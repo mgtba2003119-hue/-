@@ -1,0 +1,206 @@
+{
+  "entities": {
+    "Patient": {
+      "title": "Patient",
+      "description": "A dental clinic patient record shadow",
+      "type": "object",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "description": "Unique patient ID matching Firestore document ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the patient"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Phone number for patient contact"
+        },
+        "status": {
+          "type": "string",
+          "description": "Patient general status"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Clinical or administrative notes on patient"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Record creation timestamp"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the user who manages or created this patient"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "A scheduled dental clinic appointment",
+      "type": "object",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "description": "Unique appointment ID"
+        },
+        "patientId": {
+          "type": "string",
+          "description": "Associated Patient ID"
+        },
+        "patientName": {
+          "type": "string",
+          "description": "Name of the patient for ease of search"
+        },
+        "date": {
+          "type": "string",
+          "description": "Scheduled appointment date (YYYY-MM-DD)"
+        },
+        "time": {
+          "type": "string",
+          "description": "Scheduled time slot"
+        },
+        "treatment": {
+          "type": "string",
+          "description": "Planned treatment description"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Upcoming",
+            "Waiting",
+            "In Clinic",
+            "Completed",
+            "scheduled",
+            "completed",
+            "cancelled"
+          ],
+          "description": "Current status of the appointment"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Record creation timestamp"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner UID"
+        }
+      },
+      "required": [
+        "patientId",
+        "date",
+        "time"
+      ]
+    },
+    "Visit": {
+      "title": "Visit",
+      "description": "A clinical visit or diagnostic charting update",
+      "type": "object",
+      "properties": {
+        "_id": {
+          "type": "string",
+          "description": "Visit identifier"
+        },
+        "patientId": {
+          "type": "string",
+          "description": "Associated patient ID reference"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Doctor observations and notes"
+        },
+        "cost": {
+          "type": "number",
+          "description": "Treatment cost"
+        },
+        "paid": {
+          "type": "number",
+          "description": "Amount paid"
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of the visit"
+        },
+        "teeth": {
+          "type": "object",
+          "description": "Condition status of individual teeth in dental chart"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the creating operator"
+        }
+      },
+      "required": [
+        "patientId"
+      ]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "General application clinic configuration",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Setting type identifier"
+        },
+        "type": {
+          "type": "string",
+          "description": "The type or category of configuration"
+        },
+        "slots": {
+          "type": "array",
+          "description": "List of available schedule slots"
+        },
+        "value": {
+          "type": "string",
+          "description": "Generic string value (e.g. access code)"
+        },
+        "key": {
+          "type": "string",
+          "description": "License activation key"
+        },
+        "licenseType": {
+          "type": "string",
+          "description": "Trial or yearly"
+        },
+        "activatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of license active"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "License expiration timestamp"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    }
+  },
+  "firestore": {
+    "patients/{patientId}": {
+      "schema": "Patient",
+      "description": "Collection of all patients registered under the clinic"
+    },
+    "appointments/{appointmentId}": {
+      "schema": "Appointment",
+      "description": "Collection of clinic scheduling"
+    },
+    "visits/{visitId}": {
+      "schema": "Visit",
+      "description": "History of visits, payments and charting data"
+    },
+    "settings/{settingId}": {
+      "schema": "Setting",
+      "description": "Configuration items including slots, license, and access credentials"
+    }
+  }
+}
