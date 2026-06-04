@@ -455,39 +455,17 @@ export const apiService = {
   // Licensing
   getLicenseStatus: async () => {
     try {
-      try {
-        const localUserStr = localStorage.getItem('clinic_local_user');
-        const localUser = localUserStr ? JSON.parse(localUserStr) : null;
-        if (localUser && (
-          localUser.email === "ghanmdahmd@gmail.com" || 
-          localUser.uid === "doctor-mujtaba-access" || 
-          localUser.displayName?.includes("مجتبى") ||
-          localUser.displayName?.includes("Awad")
-        )) {
-          return {
-            activated: true,
-            daysRemaining: 3650,
-            daysLeft: 3650,
-            key: "DEVELOPER-BYPASS",
-            type: "yearly",
-            expiresAt: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000).toISOString()
-          };
-        }
-      } catch (e) {
-        console.warn("Error parsing local user in getLicenseStatus:", e);
-      }
-
       const res = await fetch(getApiUrl("/license/status"));
       return await res.json();
     } catch (err) {
       console.error("Failed to fetch license status:", err);
       return {
         activated: true,
-        daysRemaining: 3650,
-        daysLeft: 3650,
+        daysRemaining: 30,
+        daysLeft: 30,
         key: "OFFLINE-FALLBACK",
-        type: "yearly",
-        expiresAt: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000).toISOString()
+        type: "trial",
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
       };
     }
   },
@@ -769,6 +747,20 @@ export const apiService = {
     } catch (err) {
       console.error("Failed to get developer keys:", err);
       return { keys: [] };
+    }
+  },
+
+  controlDeveloperSubscription: async (pin: string, action: string, customDays?: number) => {
+    try {
+      const res = await fetch(getApiUrl("/license/developer/control"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin, action, customDays }),
+      });
+      return await res.json();
+    } catch (err) {
+      console.error("Failed to call developer subscription control:", err);
+      return { success: false, error: String(err) };
     }
   },
 

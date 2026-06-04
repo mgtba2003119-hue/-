@@ -12,6 +12,9 @@ export default function DeveloperLicensePanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [currentLicense, setCurrentLicense] = useState<any>(null);
+  const [controlLoading, setControlLoading] = useState(false);
+  const [controlSuccessMessage, setControlSuccessMessage] = useState("");
   
   // Key Generation State
   const [selectedDays, setSelectedDays] = useState<number>(7);
@@ -24,6 +27,40 @@ export default function DeveloperLicensePanel() {
       handleVerify(null, pin);
     }
   }, []);
+
+  const fetchLicenseStatus = async () => {
+    try {
+      const data = await apiService.getLicenseStatus();
+      setCurrentLicense(data);
+    } catch (err) {
+      console.error("Error reading license status:", err);
+    }
+  };
+
+  const handleSubscriptionControl = async (action: string, customDays?: number) => {
+    setControlLoading(true);
+    setError("");
+    setControlSuccessMessage("");
+    try {
+      const res = await apiService.controlDeveloperSubscription(pin, action, customDays);
+      if (res.success) {
+        setControlSuccessMessage(
+          action === "reset" 
+            ? `تم بدء عد تنازلي جديد لـ ${customDays || 30} يوم بنجاح!` 
+            : action === "disable" 
+            ? "تم تجميد وإيقاف عمل البرنامج فوراً." 
+            : "تم تفعيل وإتاحة تشغيل البرنامج بنجاح."
+        );
+        fetchLicenseStatus();
+      } else {
+        setError(res.error || "فشل تنفيذ عملية تفعيل/تعطيل الاشتراك");
+      }
+    } catch (err) {
+      setError("فشل الاتصال بالخادم لتعديل كود الاشتراك");
+    } finally {
+      setControlLoading(false);
+    }
+  };
 
   const handleVerify = async (e: React.FormEvent | null, providedPin?: string) => {
     if (e) e.preventDefault();
@@ -38,6 +75,13 @@ export default function DeveloperLicensePanel() {
         setIsAuthenticated(true);
         sessionStorage.setItem("developer_pin", activePin);
         fetchGeneratedKeys(activePin);
+        // Automatically fetch license status for subscription controller panel
+        try {
+          const data = await apiService.getLicenseStatus();
+          setCurrentLicense(data);
+        } catch (le) {
+          console.error(le);
+        }
       } else {
         setError(res.error || "رمز المرور خاطئ!");
         setIsAuthenticated(false);
@@ -193,8 +237,8 @@ ${appUrl}
                   <Cpu size={28} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black tracking-tight">بوابة المطور الحية: توليد التراخيص</h3>
-                  <p className="text-[10px] text-slate-400 font-bold mt-1">المنصة مفتوحة لتصميم عروض الأسبوع المجاني والتراخيص السنوية</p>
+                  <h3 className="text-lg font-black tracking-tight">بوابة المطور الحية: لوحة التحكم بالاشتراك والتراخيص</h3>
+                  <p className="text-[10px] text-slate-400 font-bold mt-1">المنصة مفتوحة لتصميم عروض الأسبوع المجاني والتراخيص السنوية وإدارة الاشتراك الزمني الفوري</p>
                 </div>
               </div>
 
@@ -204,6 +248,95 @@ ${appUrl}
               >
                 خروج من بوابة المطور
               </button>
+            </div>
+
+            {/* 1. Subscription Control Center */}
+            <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-lg space-y-6">
+              <div className="border-b border-slate-100 pb-4">
+                <h4 className="font-black text-slate-900 text-base flex items-center gap-2">
+                  <CalendarRange className="text-blue-500" size={22} />
+                  التحكم المباشر بالاشتراك الزمني وجهاز العميل
+                </h4>
+                <p className="text-slate-400 text-xs font-semibold mt-1">تتيح لك كصاحب ومطور النظام تعطيل البرنامج فوراً، أو تجديد العداد (30 يوم) التنازلي بضغطة واحدة دون الحاجة لأي مفاتيح يدوية.</p>
+              </div>
+
+              {/* Status Display Area */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-slate-50 border border-slate-150 rounded-2xl flex flex-col justify-between">
+                  <span className="text-[10px] text-slate-400 font-bold block mb-1">حالة تشغيل البرنامج</span>
+                  {currentLicense ? (
+                    currentLicense.activated ? (
+                      <span className="text-sm font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-xl text-center self-start">نشط ويعمل ✓</span>
+                    ) : (
+                      <span className="text-sm font-black text-rose-600 bg-rose-50 border border-rose-100 px-3 py-1.5 rounded-xl text-center self-start">موقوف / مجمّد ✕</span>
+                    )
+                  ) : (
+                    <span className="text-xs text-slate-500">جاري الاستعلام...</span>
+                  )}
+                </div>
+
+                <div className="p-4 bg-slate-50 border border-slate-150 rounded-2xl flex flex-col justify-between">
+                  <span className="text-[10px] text-slate-400 font-bold block mb-1">الأيام المتبقية في الاشتراك الحالي</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-black text-slate-900">
+                      {currentLicense ? currentLicense.daysRemaining : 0}
+                    </span>
+                    <span className="text-xs font-semibold text-slate-500">يوم متبقي</span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 border border-slate-150 rounded-2xl flex flex-col justify-between">
+                  <span className="text-[10px] text-slate-400 font-bold block mb-1">تاريخ انتهاء صلاحية الاشتراك</span>
+                  <span className="text-xs font-bold text-slate-700">
+                    {currentLicense && currentLicense.expiresAt 
+                      ? new Date(currentLicense.expiresAt).toLocaleDateString('ar-JO', { year: 'numeric', month: 'long', day: 'numeric' })
+                      : "غير محدد"
+                    }
+                  </span>
+                </div>
+              </div>
+
+              {controlSuccessMessage && (
+                <div className="p-3 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-100 flex items-center gap-2">
+                  <Check size={16} />
+                  <span>{controlSuccessMessage}</span>
+                </div>
+              )}
+
+              {/* Administrative Actions Trigger Box */}
+              <div className="flex flex-wrap gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={controlLoading}
+                  onClick={() => handleSubscriptionControl("reset", 30)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-3 rounded-xl text-xs transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={controlLoading ? "animate-spin" : ""} size={14} />
+                  <span>بدء تجديد العداد التنازلي بـ 30 يوم من اليوم</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={controlLoading}
+                  onClick={() => handleSubscriptionControl("disable")}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-black px-4 py-3 rounded-xl text-xs transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  <Lock size={14} />
+                  <span>تجميد وإيقاف البرنامج فوراً (إيقاف الاشتراك كلياً)</span>
+                </button>
+
+                {currentLicense && !currentLicense.activated && (
+                  <button
+                    type="button"
+                    disabled={controlLoading}
+                    onClick={() => handleSubscriptionControl("activate")}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-4 py-3 rounded-xl text-xs transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Unlock size={14} />
+                    <span>فك التجميد وإعادة تشغيل البرنامج</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Main generation workstation */}

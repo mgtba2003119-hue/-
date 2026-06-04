@@ -17,6 +17,8 @@ export default function Layout() {
   const { clinicName, doctorName } = useTheme();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [license, setLicense] = useState<any>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [hasUnread, setHasUnread] = useState(true);
 
   useEffect(() => {
     const fetchLicense = async () => {
@@ -106,10 +108,50 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-6">
-            <button className="relative text-slate-600 p-2 hover:bg-slate-50 rounded-full transition-all">
-              <Bell size={22} />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </button>
+            <div className="relative">
+              <button 
+                onClick={() => {
+                  setShowNotifications(!showNotifications);
+                  setHasUnread(false);
+                }}
+                className="relative text-slate-600 p-2 hover:bg-slate-50 rounded-full transition-all"
+              >
+                <Bell size={22} />
+                {hasUnread && (
+                  <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <>
+                  {/* Backdrop to close the dropdown when clicking outside ("ومن يضغط عليها ويطلع") */}
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setShowNotifications(false)}
+                  />
+                  <div className="absolute left-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-4 transition-all animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+                      <h3 className="font-semibold text-slate-800 text-sm">الإشعارات</h3>
+                      <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">جديد</span>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-50 flex gap-3">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
+                          ت
+                        </div>
+                        <div>
+                          <p className="font-semibold text-xs text-slate-900">تحديث 0.1</p>
+                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                            تم إصدار التحديث بنجاح! تم إلغاء خاصية حذف حسابات وملفات المرضى لحفظ البيانات من التلف أو الحذف العرضي.
+                          </p>
+                          <span className="text-[10px] text-slate-400 mt-1 block">الآن</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             
             <div className="flex items-center gap-3 border-r pr-6 transition-all">
               <div className="text-left text-right">

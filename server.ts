@@ -478,81 +478,117 @@ async function startServer() {
   getMachineId().then(id => { mid = id; });
   syncCloudToLocalOnBoot().catch(err => console.error("Sync on boot failed:", err));
 
+  // Helper to check, initialize or migrate 30-day countdown license
+  async function checkOrInitializeLicense() {
+    let active: any = null;
+    
+    // 1. Try to read from Firestore
+    try {
+      if (firestoreDb) {
+        const docRef = doc(firestoreDb, "settings", "active_license");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          active = docSnap.data();
+        }
+      }
+    } catch (err) {
+      console.warn("[LicenseCheck] Failed to get doc from Firestore:", err);
+    }
+
+    // 2. Try to read from local NeDB
+    if (!active) {
+      try {
+        active = await localDb.settings.findOne({ type: "active_license" });
+      } catch (err) {
+        console.warn("[LicenseCheck] Failed to find in NeDB:", err);
+      }
+    }
+
+    // 3. Determine if we must migrate/initialize a fresh 30-day license
+    const isOldLicense = active?.days === 3650 || active?.key === "GHANM-2026" || active?.key === "DEVELOPER-BYPASS";
+    
+    if (!active || isOldLicense) {
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      active = {
+        _id: "active_license",
+        type: "active_license",
+        key: "ACTIVE-30-DAY-TRIAL",
+        days: 30,
+        licenseType: "trial",
+        activatedAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        forceDisabled: false
+      };
+
+      // Save to NeDB
+      try {
+        await localDb.settings.update(
+          { type: "active_license" },
+          { $set: active },
+          { upsert: true }
+        );
+      } catch (err) {
+        console.error("[LicenseCheck] Error saving to local NeDB:", err);
+      }
+
+      // Save to Firestore
+      try {
+        if (firestoreDb) {
+          const docRef = doc(firestoreDb, "settings", "active_license");
+          await setDoc(docRef, active);
+        }
+      } catch (err) {
+        console.warn("[LicenseCheck] Error saving to Firestore:", err);
+      }
+      
+      console.log("[LicenseCheck] Initialized 30-day subscription from today.");
+    }
+
+    return active;
+  }
+
   // Status
   app.get("/api/license/status", async (req, res) => {
     try {
-      let active: any = null;
-      try {
-        if (!firestoreDb) throw new Error("Firestore not initialized");
-        const docRef = doc(firestoreDb, "settings", "active_license");
-        const docSnap = await getDoc(docRef);
-        active = docSnap.exists() ? docSnap.data() : null;
-      } catch (fErr) {
-        console.warn("Firestore error while getting license status, checking local fallback:", fErr);
-      }
-
-      if (!active) {
-        // Fallback to local NeDB database settings
-        active = await localDb.settings.findOne({ type: "active_license" }) as any;
-      }
-
+      const active = await checkOrInitializeLicense();
       const machineId = await getMachineId();
-      
-      if (!active) {
+
+      if (active.forceDisabled === true) {
         return res.json({ 
           activated: false, 
           machineId, 
-          error: "يرجى إدخال مفتاح تنشيط البرنامج لمتابعة الاستخدام." 
+          key: active.key,
+          error: "تم إيقاف تشغيل البرنامج بأمر من المطور. يرجى التواصل مع الدعم الفني لإعادة تفعيله." 
         });
       }
-      
+
       const now = new Date();
       const expires = new Date(active.expiresAt);
-      
+
       if (now > expires) {
         return res.json({ 
           activated: false, 
           machineId, 
           key: active.key,
-          error: `انتهت صلاحية مفتاح التنشيط في تاريخ ${expires.toLocaleDateString('ar-JO')}.` 
+          error: "انتهت فترة التجربة والاشتراك (30 يوم). يرجى التواصل مع مطور النظام لتجديد التفعيل." 
         });
       }
-      
+
       const daysRemaining = Math.max(0, Math.ceil((expires.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-      
+
       res.json({ 
         activated: true, 
         machineId, 
         key: active.key,
-        type: active.licenseType || active.type || 'yearly', // 'trial' or 'yearly'
+        type: active.licenseType || 'trial',
         daysRemaining,
         daysLeft: daysRemaining,
         expiresAt: active.expiresAt
       });
     } catch (err) {
       console.error("Error in license/status:", err);
-      // Absolute failsafe fallback so local NeDB is always reachable
-      try {
-        const active: any = await localDb.settings.findOne({ type: "active_license" });
-        const machineId = await getMachineId();
-        if (active) {
-          const expires = new Date(active.expiresAt);
-          const now = new Date();
-          if (now <= expires) {
-            const daysRemaining = Math.max(0, Math.ceil((expires.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-            return res.json({
-              activated: true,
-              machineId,
-              key: active.key,
-              type: active.licenseType || active.type || 'yearly',
-              daysRemaining,
-              daysLeft: daysRemaining,
-              expiresAt: active.expiresAt
-            });
-          }
-        }
-      } catch (innerE) {}
-      res.status(500).json({ error: "فشل التحقق من الترخيص" });
+      res.status(500).json({ error: "فشل التحقق من حالة الاشتراك" });
     }
   });
 
@@ -563,11 +599,10 @@ async function startServer() {
         return res.json({ success: false, error: "كود التنشيط مطلوب" });
       }
 
-      // Check offline cryptographic signature or our direct client key GHANM-2026
       const norm = key.trim();
       let validation;
       if (norm === "GHANM-2026" || norm === "2026" || norm === "1234" || norm === "مجتبى عواد" || norm === "مجتبى") {
-        validation = { valid: true, days: 3650 };
+        validation = { valid: true, days: 30 };
       } else {
         validation = verifyLicenseKey(key);
       }
@@ -577,32 +612,33 @@ async function startServer() {
       }
 
       const days = validation.days;
-      const type = days === 7 ? "trial" : "yearly";
+      const type = "trial";
       const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
       const licenseRecord = {
+        _id: 'active_license',
         type: 'active_license',
         key: key.trim().toUpperCase(),
         days,
         licenseType: type,
         activatedAt: new Date().toISOString(),
-        expiresAt: expiresAt.toISOString()
+        expiresAt: expiresAt.toISOString(),
+        forceDisabled: false
       };
 
-      // 1. Save and update locally in localDb settings (Absolute durability guarantee)
       await localDb.settings.update(
         { type: 'active_license' },
         { $set: licenseRecord },
         { upsert: true }
       );
 
-      // 2. Try to save to Firestore (non-blocking fallback to handle Permission Denied or network issues gracefully)
       try {
-        if (!firestoreDb) throw new Error("Firestore not initialized");
-        const docRef = doc(firestoreDb, "settings", "active_license");
-        await setDoc(docRef, licenseRecord);
+        if (firestoreDb) {
+          const docRef = doc(firestoreDb, "settings", "active_license");
+          await setDoc(docRef, licenseRecord);
+        }
       } catch (fErr) {
-        console.warn("Could not sync license status to Firestore setting (saved locally instead):", fErr);
+        console.warn("Could not sync license status to Firestore setting:", fErr);
       }
 
       res.json({ 
@@ -625,6 +661,63 @@ async function startServer() {
   });
 
   const DEVELOPER_PIN = process.env.DEVELOPER_PIN || "AL_GANEM_BOSS_2026";
+
+  // Support developer direct command to modify/recreate subscription
+  app.post("/api/license/developer/control", async (req, res) => {
+    try {
+      const { pin, action, customDays } = req.body;
+      if (pin !== DEVELOPER_PIN) {
+        return res.status(403).json({ success: false, error: "رمز المطور غير صحيح!" });
+      }
+
+      const current = await checkOrInitializeLicense();
+      const now = new Date();
+      let updatedLicense = { ...current };
+
+      if (action === "reset") {
+        // Reset countdown to a new 30 days or custom days from now
+        const days = customDays ? Number(customDays) : 30;
+        updatedLicense.days = days;
+        updatedLicense.activatedAt = now.toISOString();
+        updatedLicense.expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+        updatedLicense.forceDisabled = false;
+        updatedLicense.key = customDays ? `ACTIVE-${days}-DAY-LICENSE` : "ACTIVE-30-DAY-TRIAL";
+      } else if (action === "disable") {
+        // Remotely stop/disable the application
+        updatedLicense.forceDisabled = true;
+      } else if (action === "activate") {
+        // Remotely activate again/remove stop command
+        updatedLicense.forceDisabled = false;
+        if (new Date(updatedLicense.expiresAt) < now) {
+          updatedLicense.days = 30;
+          updatedLicense.activatedAt = now.toISOString();
+          updatedLicense.expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        }
+      }
+
+      // Update in NeDB
+      await localDb.settings.update(
+        { type: "active_license" },
+        { $set: updatedLicense },
+        { upsert: true }
+      );
+
+      // Update in Firestore
+      try {
+        if (firestoreDb) {
+          const docRef = doc(firestoreDb, "settings", "active_license");
+          await setDoc(docRef, updatedLicense);
+        }
+      } catch (fErr) {
+        console.warn("[DeveloperControl] Cloud sync failed, saved locally:", fErr);
+      }
+
+      res.json({ success: true, license: updatedLicense });
+    } catch (err) {
+      console.error("Error in developer control:", err);
+      res.status(500).json({ error: "فشل تحديث حالة الترخيص والاشتراك" });
+    }
+  });
 
   // Verify Developer PIN
   app.post("/api/license/developer/verify", async (req, res) => {
