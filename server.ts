@@ -353,63 +353,85 @@ function verifyLicenseKey(key: string): { valid: boolean; days: number } {
   return { valid: true, days };
 }
 
-// Auto Sync from Cloud (Firestore) to Local NeDB database
+// Helper to merge local NeDB and Cloud Firestore documents bidirectional
+async function mergeAndCacheDocs(localCol: any, firestoreDocs: any[], colName: string) {
+  if (!firestoreDb) return firestoreDocs;
+  try {
+    const localDocs = await localCol.find({});
+    const mergedMap = new Map();
+
+    for (const d of localDocs) {
+      mergedMap.set(d._id, d);
+    }
+
+    const firestoreIds = new Set<string>();
+
+    for (const fd of firestoreDocs) {
+      firestoreIds.add(fd._id);
+      const existing = mergedMap.get(fd._id);
+      if (!existing) {
+        await localCol.insert(fd).catch(() => {});
+        mergedMap.set(fd._id, fd);
+      } else {
+        const merged = { ...existing, ...fd };
+        mergedMap.set(fd._id, merged);
+        await localCol.update({ _id: fd._id }, { $set: fd }).catch(() => {});
+      }
+    }
+
+    // Auto backup local-only data to Firestore in background
+    for (const ld of localDocs) {
+      if (!firestoreIds.has(ld._id)) {
+        setDoc(doc(firestoreDb, colName, ld._id), {
+          ...ld,
+          syncedAt: new Date().toISOString()
+        }).catch((err) => console.warn(`[Auto-Upload] Failed to sync ${colName}/${ld._id} to Firestore:`, err));
+      }
+    }
+
+    return Array.from(mergedMap.values());
+  } catch (err) {
+    console.error(`Error in mergeAndCacheDocs for ${colName}:`, err);
+    return firestoreDocs;
+  }
+}
+
+// Bidirectional Sync & reconciliation from Cloud (Firestore) to Local NeDB database on boot
 async function syncCloudToLocalOnBoot() {
   if (!firestoreDb) {
     console.log("[BootSync] Firestore is not initialized or unavailable, skipping cloud-to-local sync.");
     return;
   }
-  console.log("[BootSync] Checking for Cloud data to sync locally...");
+  console.log("[BootSync] Running comprehensive bidirectional data reconciliation and local recovery...");
   try {
     // 1. Sync Patients
     const patientsCol = collection(firestoreDb, "patients");
     const patientsSnapshot = await getDocs(patientsCol);
-    let syncedPatCount = 0;
-    for (const docSnap of patientsSnapshot.docs) {
-      const data = docSnap.data();
-      const existing = await localDb.patients.findOne({ _id: docSnap.id });
-      if (!existing) {
-        await localDb.patients.insert({ ...data, _id: docSnap.id });
-        syncedPatCount++;
-      }
-    }
-    if (syncedPatCount > 0) {
-      console.log(`[BootSync] Synced ${syncedPatCount} patients from cloud to local database.`);
-    }
+    const cloudPatients = patientsSnapshot.docs.map(d => ({ ...d.data(), _id: d.id }));
+    await mergeAndCacheDocs(localDb.patients, cloudPatients, "patients");
 
     // 2. Sync Appointments
     const apptsCol = collection(firestoreDb, "appointments");
     const apptsSnapshot = await getDocs(apptsCol);
-    let syncedApptCount = 0;
-    for (const docSnap of apptsSnapshot.docs) {
-      const data = docSnap.data();
-      const existing = await localDb.appointments.findOne({ _id: docSnap.id });
-      if (!existing) {
-        await localDb.appointments.insert({ ...data, _id: docSnap.id });
-        syncedApptCount++;
-      }
-    }
-    if (syncedApptCount > 0) {
-      console.log(`[BootSync] Synced ${syncedApptCount} appointments from cloud to local database.`);
-    }
+    const cloudAppts = apptsSnapshot.docs.map(d => ({ ...d.data(), _id: d.id }));
+    await mergeAndCacheDocs(localDb.appointments, cloudAppts, "appointments");
 
     // 3. Sync Visits
     const visitsCol = collection(firestoreDb, "visits");
     const visitsSnapshot = await getDocs(visitsCol);
-    let syncedVisCount = 0;
-    for (const docSnap of visitsSnapshot.docs) {
-      const data = docSnap.data();
-      const existing = await localDb.visits.findOne({ _id: docSnap.id });
-      if (!existing) {
-        await localDb.visits.insert({ ...data, _id: docSnap.id });
-        syncedVisCount++;
-      }
-    }
-    if (syncedVisCount > 0) {
-      console.log(`[BootSync] Synced ${syncedVisCount} visits from cloud to local database.`);
-    }
+    const cloudVisits = visitsSnapshot.docs.map(d => ({ ...d.data(), _id: d.id }));
+    await mergeAndCacheDocs(localDb.visits, cloudVisits, "visits");
+
+    // 4. Sync Settings
+    const settingsCol = collection(firestoreDb, "settings");
+    const settingsSnapshot = await getDocs(settingsCol);
+    const cloudSettings = settingsSnapshot.docs.map(d => ({ ...d.data(), _id: d.id }));
+    await mergeAndCacheDocs(localDb.settings, cloudSettings, "settings");
+
+    console.log("[BootSync] Comprehensive bidirectional reconciliation and local recovery complete.");
   } catch (err) {
-    console.log("[BootSync] Cloud sync is currently offline or pending (system operating safely in Offline-First Local Mode).");
+    console.error("[BootSync] Reconciliation failed:", err);
+    console.log("[BootSync] Cloud sync or network is currently offline/pending (system operating safely in Offline-First Local Mode).");
   }
 }
 
@@ -417,8 +439,8 @@ async function startServer() {
   console.log("Initializing local server...");
   const app = express();
   
-  // Resolve an available port dynamically starting from 3000
-  const PORT = await getAvailablePort(3000);
+  // Port must be strictly 3000 as required by the container infrastructure proxy
+  const PORT = 3000;
   (global as any).serverPort = PORT;
 
   app.use(express.json());
@@ -686,40 +708,34 @@ async function startServer() {
 
   // Patients
   app.get("/api/patients", async (req, res) => {
-    let patients: any[] | null = null;
+    let patients: any[] = [];
     try {
       if (firestoreDb) {
         const patientsCol = collection(firestoreDb, "patients");
         const patientsSnapshot = await getDocs(patientsCol);
-        patients = patientsSnapshot.docs.map(docSnap => {
-          const docData = docSnap.data();
-          const record = { ...docData, _id: docSnap.id };
-          return record;
-        });
-
-        // Update local NeDB in sync asynchronously as a cache
-        for (const p of patients) {
-          localDb.patients.update({ _id: p._id }, { $set: p }, { upsert: true }).catch(() => {});
-        }
+        const cloudPatients = patientsSnapshot.docs.map(docSnap => ({
+          ...docSnap.data(),
+          _id: docSnap.id
+        }));
+        patients = await mergeAndCacheDocs(localDb.patients, cloudPatients, "patients");
+      } else {
+        patients = await localDb.patients.find({});
       }
     } catch (err) {
       console.warn("Firestore error in GET /api/patients inside server, checking local NeDB fallback:", err);
-    }
-
-    if (patients === null) {
       try {
-        patients = await localDb.patients.find({}).sort({ createdAt: -1 });
+        patients = await localDb.patients.find({});
       } catch (localErr) {
         patients = [];
       }
-    } else {
-      // Sort patients by createdAt descending to match expectations
-      patients.sort((a, b) => {
-        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const dbVal = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return dbVal - da;
-      });
     }
+
+    // Sort patients by createdAt descending to match expectations
+    patients.sort((a, b) => {
+      const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dbVal = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dbVal - da;
+    });
 
     res.json(patients);
   });
@@ -774,18 +790,7 @@ async function startServer() {
   });
 
   app.delete("/api/patients/:id", async (req, res) => {
-    try {
-      await localDb.patients.remove({ _id: req.params.id }, {});
-      
-      if (firestoreDb) {
-        try {
-          await deleteDoc(doc(firestoreDb, "patients", req.params.id));
-        } catch (fErr) {
-          console.warn("[Cloud Sync Error] Failed to delete patient from Firestore:", fErr);
-        }
-      }
-      res.json({ success: true });
-    } catch (err) { res.status(500).json(err); }
+    return res.status(403).json({ error: "تم إلغاء ميزة حذف ملفات وحسابات المرضى لحماية البيانات من الحذف العرضي." });
   });
 
   app.patch("/api/patients/:id", async (req, res) => {
@@ -805,38 +810,33 @@ async function startServer() {
 
   // Appointments
   app.get("/api/appointments", async (req, res) => {
-    let appointments: any[] | null = null;
+    let appointments: any[] = [];
     try {
       if (firestoreDb) {
         const apptsCol = collection(firestoreDb, "appointments");
         const snapshot = await getDocs(apptsCol);
-        appointments = snapshot.docs.map(docSnap => ({
+        const cloudAppts = snapshot.docs.map(docSnap => ({
           ...docSnap.data(),
           _id: docSnap.id
         }));
-
-        // Keep local NeDB in sync
-        for (const a of appointments) {
-          localDb.appointments.update({ _id: a._id }, { $set: a }, { upsert: true }).catch(() => {});
-        }
+        appointments = await mergeAndCacheDocs(localDb.appointments, cloudAppts, "appointments");
+      } else {
+        appointments = await localDb.appointments.find({});
       }
     } catch (err) {
       console.warn("Firestore error in GET /api/appointments, checking local NeDB fallback:", err);
-    }
-
-    if (appointments === null) {
       try {
-        appointments = await localDb.appointments.find({}).sort({ date: 1 });
+        appointments = await localDb.appointments.find({});
       } catch (localErr) {
         appointments = [];
       }
-    } else {
-      appointments.sort((a, b) => {
-        const da = a.date ? new Date(a.date).getTime() : 0;
-        const dbVal = b.date ? new Date(b.date).getTime() : 0;
-        return da - dbVal;
-      });
     }
+
+    appointments.sort((a, b) => {
+      const da = a.date ? new Date(a.date).getTime() : 0;
+      const dbVal = b.date ? new Date(b.date).getTime() : 0;
+      return da - dbVal;
+    });
 
     res.json(appointments);
   });
@@ -890,39 +890,32 @@ async function startServer() {
 
   // Visits
   app.get("/api/visits/:patientId", async (req, res) => {
-    let visits: any[] | null = null;
+    let visits: any[] = [];
     try {
       if (firestoreDb) {
         const visitsCol = collection(firestoreDb, "visits");
-        const q = query(visitsCol, where("patientId", "==", req.params.patientId));
-        const snapshot = await getDocs(q);
-        visits = snapshot.docs.map(docSnap => ({
+        const snapshot = await getDocs(visitsCol);
+        const cloudVisits = snapshot.docs.map(docSnap => ({
           ...docSnap.data(),
           _id: docSnap.id
         }));
-
-        // Keep local NeDB in sync
-        for (const v of visits) {
-          localDb.visits.update({ _id: v._id }, { $set: v }, { upsert: true }).catch(() => {});
-        }
+        await mergeAndCacheDocs(localDb.visits, cloudVisits, "visits");
       }
+      visits = await localDb.visits.find({ patientId: req.params.patientId });
     } catch (err) {
       console.warn(`Firestore error in GET /api/visits/${req.params.patientId}, checking local NeDB fallback:`, err);
-    }
-
-    if (visits === null) {
       try {
-        visits = await localDb.visits.find({ patientId: req.params.patientId }).sort({ date: -1 });
+        visits = await localDb.visits.find({ patientId: req.params.patientId });
       } catch (localErr) {
         visits = [];
       }
-    } else {
-      visits.sort((a, b) => {
-        const da = a.date ? new Date(a.date).getTime() : 0;
-        const dbVal = b.date ? new Date(b.date).getTime() : 0;
-        return dbVal - da;
-      });
     }
+
+    visits.sort((a, b) => {
+      const da = a.date ? new Date(a.date).getTime() : 0;
+      const dbVal = b.date ? new Date(b.date).getTime() : 0;
+      return dbVal - da;
+    });
 
     res.json(visits);
   });

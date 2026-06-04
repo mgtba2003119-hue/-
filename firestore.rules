@@ -2,13 +2,18 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // --- Global Safety Net ---
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     // --- Helper Functions ---
     function isSignedIn() {
       return request.auth != null;
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128;
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function incoming() {
@@ -59,22 +64,30 @@ service cloud.firestore {
 
     // 1. Patients Collection
     match /patients/{patientId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isValidId(patientId) && isValidPatient(incoming());
+      allow delete: if true;
     }
 
     // 2. Appointments Collection
     match /appointments/{appointmentId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isValidId(appointmentId) && isValidAppointment(incoming());
+      allow delete: if true;
     }
 
     // 3. Visits Collection
     match /visits/{visitId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isValidId(visitId) && isValidVisit(incoming());
+      allow delete: if true;
     }
 
-    // 4. Settings Collection (unauthenticated read/write supported for server sync & local bypass configs)
+    // 4. Settings Collection
     match /settings/{settingId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isValidId(settingId) && isValidSetting(incoming());
+      allow delete: if true;
     }
   }
 }

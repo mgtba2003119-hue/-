@@ -175,13 +175,6 @@ export default function Patients() {
                 transition={{ delay: i * 0.05 }}
                 className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all group relative"
               >
-                <button 
-                  onClick={() => setPatientToDelete(patient._id || patient.id)}
-                  className="absolute top-4 left-4 p-2 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
-                >
-                  <Trash2 size={16} />
-                </button>
-
                 <Link to={`/patient/${patient._id || patient.id}`} className="block">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-4">
@@ -275,12 +268,6 @@ export default function Patients() {
                        <Link to={`/patient/${patient._id || patient.id}`} className="p-2 text-slate-400 hover:text-blue-600 transition-all">
                         <ArrowUpRight size={18} />
                       </Link>
-                      <button 
-                        onClick={() => setPatientToDelete(patient._id || patient.id)}
-                        className="p-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                      >
-                        <Trash2 size={16} />
-                      </button>
                     </div>
                   </td>
                 </tr>
