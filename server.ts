@@ -478,36 +478,50 @@ async function startServer() {
   getMachineId().then(id => { mid = id; });
   syncCloudToLocalOnBoot().catch(err => console.error("Sync on boot failed:", err));
 
+  // In-memory cache for fastest status delivery and error resilience
+  let cachedLicense: any = null;
+
   // Helper to check, initialize or migrate 30-day countdown license
   async function checkOrInitializeLicense() {
-    let active: any = null;
-    
-    // 1. Try to read from Firestore
-    try {
-      if (firestoreDb) {
-        const docRef = doc(firestoreDb, "settings", "active_license");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          active = docSnap.data();
-        }
-      }
-    } catch (err) {
-      console.warn("[LicenseCheck] Failed to get doc from Firestore:", err);
+    // If we have a valid cached license in memory and it is not old/migrated, return it instantly!
+    const isOldLicenseCache = cachedLicense?.days === 3650 || cachedLicense?.key === "GHANM-2026" || cachedLicense?.key === "DEVELOPER-BYPASS";
+    if (cachedLicense && !isOldLicenseCache) {
+      return cachedLicense;
     }
 
-    // 2. Try to read from local NeDB
-    if (!active) {
+    let active: any = null;
+    
+    // 1. Try to read from local NeDB first (immediate, reliable)
+    try {
+      active = await localDb.settings.findOne({ type: "active_license" });
+    } catch (err) {
+      console.warn("[LicenseCheck] Failed to find in NeDB:", err);
+    }
+
+    // 2. Try to read from Firestore ONLY if NeDB has nothing or if it is old, with a quick 1-second timeout
+    const isOldLicense = active?.days === 3650 || active?.key === "GHANM-2026" || active?.key === "DEVELOPER-BYPASS";
+    if (!active || isOldLicense) {
       try {
-        active = await localDb.settings.findOne({ type: "active_license" });
+        if (firestoreDb) {
+          const docRef = doc(firestoreDb, "settings", "active_license");
+          // Multi-platform short-timeout wrapper
+          const firestorePromise = getDoc(docRef);
+          const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000));
+          const docSnap = await Promise.race([firestorePromise, timeoutPromise]) as any;
+          
+          if (docSnap && docSnap.exists()) {
+            active = docSnap.data();
+          }
+        }
       } catch (err) {
-        console.warn("[LicenseCheck] Failed to find in NeDB:", err);
+        console.warn("[LicenseCheck] Failed to get doc from Firestore (or timed out):", err);
       }
     }
 
     // 3. Determine if we must migrate/initialize a fresh 30-day license
-    const isOldLicense = active?.days === 3650 || active?.key === "GHANM-2026" || active?.key === "DEVELOPER-BYPASS";
+    const isStillOldLicense = active?.days === 3650 || active?.key === "GHANM-2026" || active?.key === "DEVELOPER-BYPASS";
     
-    if (!active || isOldLicense) {
+    if (!active || isStillOldLicense) {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
       active = {
@@ -536,15 +550,17 @@ async function startServer() {
       try {
         if (firestoreDb) {
           const docRef = doc(firestoreDb, "settings", "active_license");
-          await setDoc(docRef, active);
+          setDoc(docRef, active).catch(e => console.warn("[LicenseCheck] Firestore background save failed:", e));
         }
       } catch (err) {
-        console.warn("[LicenseCheck] Error saving to Firestore:", err);
+        console.warn("[LicenseCheck] Error initiating background Firestore save:", err);
       }
       
       console.log("[LicenseCheck] Initialized 30-day subscription from today.");
     }
 
+    // Cache the active license
+    cachedLicense = active;
     return active;
   }
 
@@ -632,6 +648,8 @@ async function startServer() {
         { upsert: true }
       );
 
+      cachedLicense = licenseRecord;
+
       try {
         if (firestoreDb) {
           const docRef = doc(firestoreDb, "settings", "active_license");
@@ -701,6 +719,8 @@ async function startServer() {
         { $set: updatedLicense },
         { upsert: true }
       );
+
+      cachedLicense = updatedLicense;
 
       // Update in Firestore
       try {

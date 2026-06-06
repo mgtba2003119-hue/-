@@ -134,17 +134,30 @@ export default function Layout() {
                       <h3 className="font-semibold text-slate-800 text-sm">الإشعارات</h3>
                       <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">جديد</span>
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-3 max-h-72 overflow-y-auto">
+                      <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 flex gap-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0">
+                          ت
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-bold text-xs text-slate-900">تحديث 0.2</p>
+                          <p className="text-[11px] text-emerald-800 font-semibold mt-1 leading-relaxed">
+                            تم حل مشكلة تسجيل المرضى الجدد بنجاح! ولحفظ السجلات الطبية بشكل آمن، تم إلغاء ومنع إمكانية حذف جلسات ومعاينات المرضى كلياً.
+                          </p>
+                          <span className="text-[10px] text-emerald-600 font-semibold mt-1 block">الآن</span>
+                        </div>
+                      </div>
+
                       <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-50 flex gap-3">
                         <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
                           ت
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <p className="font-semibold text-xs text-slate-900">تحديث 0.1</p>
                           <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                             تم إصدار التحديث بنجاح! تم إلغاء خاصية حذف حسابات وملفات المرضى لحفظ البيانات من التلف أو الحذف العرضي.
                           </p>
-                          <span className="text-[10px] text-slate-400 mt-1 block">الآن</span>
+                          <span className="text-[10px] text-slate-400 mt-1 block">منذ يومين</span>
                         </div>
                       </div>
                     </div>
