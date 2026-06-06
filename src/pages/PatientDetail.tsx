@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { 
   ArrowRight, Phone, Mail, User, ShieldAlert, History, 
   FileText, Plus, Sparkles, Send, CheckCircle2, Activity, Printer, Download, X, Trash2, CreditCard,
-  Heart, Clipboard, UserCheck, Calendar, DollarSign, RefreshCw, AlertTriangle, FileSpreadsheet, Eye, Save
+  Heart, Clipboard, UserCheck, Calendar, DollarSign, RefreshCw, AlertTriangle, FileSpreadsheet, Eye, Save, Lock
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useTheme } from "../context/ThemeContext";
@@ -810,13 +810,7 @@ ${medText}
                                 <span className="bg-emerald-50 text-emerald-600 border border-emerald-100 px-2.5 py-1 rounded-lg text-[10px] font-bold">
                                   مكتملة سريرياً
                                 </span>
-                                <button 
-                                  onClick={() => setVisitToDelete(visit._id || visit.id)}
-                                  className="p-1.5 text-slate-300 hover:text-rose-600 transition-all rounded-lg hover:bg-rose-50 cursor-pointer"
-                                  title="إلغاء سجل الزيارة من الأرشيف"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
+                                {/* Deletion disabled in read-only archival mode */}
                               </div>
                             </div>
 
@@ -957,7 +951,7 @@ ${medText}
                           setTransactionType("charge");
                           setShowPaymentModal(true);
                         }}
-                        className="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-2 rounded-xl text-[11px] font-black border border-red-100 transition-all flex items-center gap-1"
+                        className="bg-red-50 hover:bg-red-100 text-red-700 px-3 py-2 rounded-xl text-[11px] font-black border border-red-100 transition-all flex items-center gap-1 cursor-pointer"
                       >
                         <Plus size={14} />
                         <span>تقييد رسوم إجراء طبي (دين)</span>
@@ -967,7 +961,7 @@ ${medText}
                           setTransactionType("payment");
                           setShowPaymentModal(true);
                         }}
-                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-2 rounded-xl text-[11px] font-black border border-emerald-100 transition-all flex items-center gap-1"
+                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-2 rounded-xl text-[11px] font-black border border-emerald-100 transition-all flex items-center gap-1 cursor-pointer"
                       >
                         <CheckCircle2 size={14} />
                         <span>قيد دفعة مستلمة (سداد)</span>

@@ -52,29 +52,10 @@ export const apiService = {
   // Patients
   getPatients: async () => {
     try {
-      if (!isCloudMode()) {
-        console.log("Fetching patients from local NeDB storage (Local Mode)...");
-        const res = await fetch(getApiUrl("/patients"));
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      console.log("Fetching patients from Cloud Firestore...");
-      try {
-        const q = query(collection(db, "patients"));
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map(doc => ({
-          ...doc.data(),
-          _id: doc.id
-        }));
-        console.log("Firestore patients count:", data.length);
-        return data;
-      } catch (err) {
-        console.warn("Firestore error in getPatients, falling back to local NeDB storage:", err);
-        const res = await fetch(getApiUrl("/patients"));
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log("Fetching patients from local NeDB storage...");
+      const res = await fetch(getApiUrl("/patients"));
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error("Critical failure in getPatients:", err);
       return [];
@@ -83,28 +64,11 @@ export const apiService = {
 
   getPatient: async (id: string) => {
     try {
-      if (!isCloudMode()) {
-        console.log(`Fetching patient ${id} from local NeDB storage...`);
-        const res = await fetch(getApiUrl(`/patients/${id}`));
-        if (res.status === 404) return null;
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const docRef = doc(db, "patients", id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          return { ...docSnap.data(), _id: docSnap.id };
-        }
-        return null;
-      } catch (err) {
-        console.warn(`Firestore error in getPatient/${id}, falling back to local NeDB storage:`, err);
-        const res = await fetch(getApiUrl(`/patients/${id}`));
-        if (res.status === 404) return null;
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log(`Fetching patient ${id} from local NeDB storage...`);
+      const res = await fetch(getApiUrl(`/patients/${id}`));
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error(`Critical failure in getPatient/${id}:`, err);
       return null;
@@ -113,36 +77,14 @@ export const apiService = {
 
   addPatient: async (patient: any) => {
     try {
-      if (!isCloudMode()) {
-        console.log("Adding patient to local NeDB storage...");
-        const res = await fetch(getApiUrl("/patients"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patient)
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const docRef = doc(collection(db, "patients"));
-        const record = { 
-          ...patient, 
-          _id: docRef.id, 
-          createdAt: new Date().toISOString()
-        };
-        await setDoc(docRef, record);
-        return record;
-      } catch (err) {
-        console.warn("Firestore error in addPatient, falling back to local NeDB storage:", err);
-        const res = await fetch(getApiUrl("/patients"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patient)
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log("Adding patient to local NeDB storage...");
+      const res = await fetch(getApiUrl("/patients"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patient)
+      });
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error("Critical failure in addPatient:", err);
       return { ...patient, _id: "local-temp-" + Date.now() };
@@ -151,27 +93,12 @@ export const apiService = {
 
   deletePatient: async (id: string) => {
     try {
-      if (!isCloudMode()) {
-        console.log(`Deleting patient ${id} from local NeDB storage...`);
-        const res = await fetch(getApiUrl(`/patients/${id}`), {
-          method: "DELETE"
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const docRef = doc(db, "patients", id);
-        await deleteDoc(docRef);
-        return { success: true };
-      } catch (err) {
-        console.warn(`Firestore error in deletePatient/${id}, falling back to local NeDB storage:`, err);
-        const res = await fetch(getApiUrl(`/patients/${id}`), {
-          method: "DELETE"
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log(`Deleting patient ${id} from local NeDB storage...`);
+      const res = await fetch(getApiUrl(`/patients/${id}`), {
+        method: "DELETE"
+      });
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error(`Critical failure in deletePatient/${id}:`, err);
       return { success: false, error: "Local sync delete failed" };
@@ -180,32 +107,14 @@ export const apiService = {
 
   updatePatient: async (id: string, data: any) => {
     try {
-      if (!isCloudMode()) {
-        console.log(`Updating patient ${id} in local NeDB storage...`);
-        const res = await fetch(getApiUrl(`/patients/${id}`), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data)
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const docRef = doc(db, "patients", id);
-        const { _id, ...cleanData } = data;
-        await setDoc(docRef, cleanData, { merge: true });
-        return { success: true, ...cleanData };
-      } catch (err) {
-        console.warn(`Firestore error in updatePatient/${id}, falling back to local NeDB storage:`, err);
-        const res = await fetch(getApiUrl(`/patients/${id}`), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data)
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log(`Updating patient ${id} in local NeDB storage...`);
+      const res = await fetch(getApiUrl(`/patients/${id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error(`Critical failure in updatePatient/${id}:`, err);
       return { success: false, ...data };
@@ -215,27 +124,10 @@ export const apiService = {
   // Appointments
   getAppointments: async () => {
     try {
-      if (!isCloudMode()) {
-        console.log("Fetching appointments from local NeDB storage...");
-        const res = await fetch(getApiUrl("/appointments"));
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const q = query(collection(db, "appointments"));
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map(doc => ({
-          ...doc.data(),
-          _id: doc.id
-        }));
-        return data;
-      } catch (err) {
-        console.warn("Firestore error in getAppointments, falling back to local NeDB storage:", err);
-        const res = await fetch(getApiUrl("/appointments"));
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log("Fetching appointments from local NeDB storage...");
+      const res = await fetch(getApiUrl("/appointments"));
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error("Critical failure in getAppointments:", err);
       return [];
@@ -244,36 +136,14 @@ export const apiService = {
 
   addAppointment: async (appointment: any) => {
     try {
-      if (!isCloudMode()) {
-        console.log("Adding appointment to local NeDB storage...");
-        const res = await fetch(getApiUrl("/appointments"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(appointment)
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const docRef = doc(collection(db, "appointments"));
-        const record = {
-          ...appointment,
-          _id: docRef.id,
-          createdAt: new Date().toISOString()
-        };
-        await setDoc(docRef, record);
-        return record;
-      } catch (err) {
-        console.warn("Firestore error in addAppointment, falling back to local NeDB storage:", err);
-        const res = await fetch(getApiUrl("/appointments"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(appointment)
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log("Adding appointment to local NeDB storage...");
+      const res = await fetch(getApiUrl("/appointments"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(appointment)
+      });
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error("Critical failure in addAppointment:", err);
       return { ...appointment, _id: "local-appt-" + Date.now() };
@@ -282,26 +152,12 @@ export const apiService = {
 
   deleteAppointment: async (id: string) => {
     try {
-      if (!isCloudMode()) {
-        console.log(`Deleting appointment ${id} from local NeDB storage...`);
-        const res = await fetch(getApiUrl(`/appointments/${id}`), {
-          method: "DELETE"
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        await deleteDoc(doc(db, "appointments", id));
-        return { success: true };
-      } catch (err) {
-        console.warn(`Firestore error in deleteAppointment/${id}, falling back to local NeDB storage:`, err);
-        const res = await fetch(getApiUrl(`/appointments/${id}`), {
-          method: "DELETE"
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log(`Deleting appointment ${id} from local NeDB storage...`);
+      const res = await fetch(getApiUrl(`/appointments/${id}`), {
+        method: "DELETE"
+      });
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error(`Critical failure in deleteAppointment/${id}:`, err);
       return { success: false };
@@ -310,31 +166,14 @@ export const apiService = {
 
   updateAppointmentStatus: async (id: string, status: string) => {
     try {
-      if (!isCloudMode()) {
-        console.log(`Updating appointment ${id} status to ${status} in local NeDB storage...`);
-        const res = await fetch(getApiUrl(`/appointments/${id}`), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status })
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const docRef = doc(db, "appointments", id);
-        await setDoc(docRef, { status }, { merge: true });
-        return { success: true };
-      } catch (err) {
-        console.warn(`Firestore error in updateAppointmentStatus/${id}, falling back to local NeDB storage:`, err);
-        const res = await fetch(getApiUrl(`/appointments/${id}`), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status })
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log(`Updating appointment ${id} status to ${status} in local NeDB storage...`);
+      const res = await fetch(getApiUrl(`/appointments/${id}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      });
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error(`Critical failure in updateAppointmentStatus/${id}:`, err);
       return { success: false };
@@ -344,27 +183,10 @@ export const apiService = {
   // Visits
   getVisits: async (patientId: string) => {
     try {
-      if (!isCloudMode()) {
-        console.log(`Fetching visits for patient ${patientId} from local NeDB storage...`);
-        const res = await fetch(getApiUrl(`/visits/${patientId}`));
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const q = query(collection(db, "visits"), where("patientId", "==", patientId));
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map(doc => ({
-          ...doc.data(),
-          _id: doc.id
-        }));
-        return data;
-      } catch (err) {
-        console.warn(`Firestore error in getVisits for patient ${patientId}, falling back to local NeDB storage:`, err);
-        const res = await fetch(getApiUrl(`/visits/${patientId}`));
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log(`Fetching visits for patient ${patientId} from local NeDB storage...`);
+      const res = await fetch(getApiUrl(`/visits/${patientId}`));
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error(`Critical failure in getVisits for patient ${patientId}:`, err);
       return [];
@@ -373,36 +195,14 @@ export const apiService = {
 
   addVisit: async (visit: any) => {
     try {
-      if (!isCloudMode()) {
-        console.log("Adding visit to local NeDB storage...");
-        const res = await fetch(getApiUrl("/visits"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(visit)
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        const docRef = doc(collection(db, "visits"));
-        const record = {
-          ...visit,
-          _id: docRef.id,
-          date: new Date().toISOString()
-        };
-        await setDoc(docRef, record);
-        return record;
-      } catch (err) {
-        console.warn("Firestore error in addVisit, falling back to local NeDB storage:", err);
-        const res = await fetch(getApiUrl("/visits"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(visit)
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log("Adding visit to local NeDB storage...");
+      const res = await fetch(getApiUrl("/visits"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(visit)
+      });
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error("Critical failure in addVisit:", err);
       return { ...visit, _id: "local-visit-" + Date.now() };
@@ -411,26 +211,12 @@ export const apiService = {
 
   deleteVisit: async (id: string) => {
     try {
-      if (!isCloudMode()) {
-        console.log(`Deleting visit ${id} from local NeDB storage...`);
-        const res = await fetch(getApiUrl(`/visits/${id}`), {
-          method: "DELETE"
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
-
-      try {
-        await deleteDoc(doc(db, "visits", id));
-        return { success: true };
-      } catch (err) {
-        console.warn(`Firestore error in deleteVisit/${id}, falling back to local NeDB storage:`, err);
-        const res = await fetch(getApiUrl(`/visits/${id}`), {
-          method: "DELETE"
-        });
-        if (!res.ok) throw new Error("Local API error");
-        return await res.json();
-      }
+      console.log(`Deleting visit ${id} from local NeDB storage...`);
+      const res = await fetch(getApiUrl(`/visits/${id}`), {
+        method: "DELETE"
+      });
+      if (!res.ok) throw new Error("Local API error");
+      return await res.json();
     } catch (err) {
       console.error(`Critical failure in deleteVisit/${id}:`, err);
       return { success: false };

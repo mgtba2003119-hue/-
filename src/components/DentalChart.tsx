@@ -30,6 +30,7 @@ interface ToothData {
 interface DentalChartProps {
   initialData?: Record<number, ToothData>;
   onSave: (data: Record<number, ToothData>) => void;
+  readOnly?: boolean;
 }
 
 // Rich clinical statuses configuration with localized labels, icon, color grades and styling
@@ -409,7 +410,7 @@ const ToothSVG = ({
   );
 };
 
-export default function DentalChart({ initialData = {}, onSave }: DentalChartProps) {
+export default function DentalChart({ initialData = {}, onSave, readOnly = false }: DentalChartProps) {
   const [teeth, setTeeth] = useState<Record<number, ToothData>>(initialData || {});
   const [selectedTooth, setSelectedTooth] = useState<number | null>(null);
   const [ageGroup, setAgeGroup] = useState<"adults" | "kids">("adults");
@@ -422,6 +423,7 @@ export default function DentalChart({ initialData = {}, onSave }: DentalChartPro
 
   // Handle setting status for the selected tooth
   const handleStatusChange = (status: ToothStatus) => {
+    if (readOnly) return;
     if (selectedTooth === null) return;
     const currentNotes = teeth[selectedTooth]?.notes || "";
     const newTeeth = {
@@ -434,6 +436,7 @@ export default function DentalChart({ initialData = {}, onSave }: DentalChartPro
 
   // Handle notes change
   const handleNotesChange = (notes: string) => {
+    if (readOnly) return;
     if (selectedTooth === null) return;
     const currentStatus = teeth[selectedTooth]?.status || "Healthy";
     const newTeeth = {
@@ -446,6 +449,7 @@ export default function DentalChart({ initialData = {}, onSave }: DentalChartPro
 
   // Settle individual tooth status clear
   const handleClearTooth = () => {
+    if (readOnly) return;
     if (selectedTooth === null) return;
     const newTeeth = { ...teeth };
     delete newTeeth[selectedTooth];
@@ -764,21 +768,23 @@ export default function DentalChart({ initialData = {}, onSave }: DentalChartPro
 
               {/* Close / Action controls */}
               <div className="flex gap-2 w-full lg:w-auto shrink-0">
-                <button
-                  type="button"
-                  onClick={handleClearTooth}
-                  className="flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 text-slate-500 hover:text-red-600 hover:bg-red-50 hover:border-red-200/80 rounded-xl text-xs font-bold transition-all relative"
-                  title="إلغاء التشخيص للسن والرجوع كطبيعي"
-                >
-                  <Trash2 size={14} />
-                  <span>إعادة ضبط كسن سليم</span>
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={handleClearTooth}
+                    className="flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 text-slate-500 hover:text-red-600 hover:bg-red-50 hover:border-red-200/80 rounded-xl text-xs font-bold transition-all relative"
+                    title="إلغاء التشخيص للسن والرجوع كطبيعي"
+                  >
+                    <Trash2 size={14} />
+                    <span>إعادة ضبط كسن سليم</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setSelectedTooth(null)}
                   className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl text-xs font-black transition-all flex-1 lg:flex-initial"
                 >
-                  <span>موافق وحفظ التعديلات</span>
+                  <span>{readOnly ? "إغلاق المعاينة" : "موافق وحفظ التعديلات"}</span>
                 </button>
               </div>
             </div>
@@ -790,7 +796,7 @@ export default function DentalChart({ initialData = {}, onSave }: DentalChartPro
               <div className="lg:col-span-7">
                 <div className="flex items-center gap-2 mb-4">
                   <Zap size={14} className="text-amber-500" />
-                  <h5 className="text-xs font-black text-slate-700 uppercase tracking-wider">الحالة والتصنيف السريري للسن</h5>
+                  <h5 className="text-xs font-black text-slate-700 uppercase tracking-wider">الحالة والتصنيف السريري للسن {readOnly && "(مغلق)"}</h5>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -801,12 +807,14 @@ export default function DentalChart({ initialData = {}, onSave }: DentalChartPro
                       <button
                         key={key}
                         type="button"
-                        onClick={() => handleStatusChange(key as ToothStatus)}
+                        onClick={() => !readOnly && handleStatusChange(key as ToothStatus)}
+                        disabled={readOnly}
                         className={cn(
                           "flex items-center gap-3 p-3 rounded-2xl border transition-all text-right group",
                           isCurrentStatus 
                             ? "bg-white border-blue-600 shadow-xs ring-1 ring-blue-600/50" 
-                            : "bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-xxs border-slate-200/80"
+                            : "bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-xxs border-slate-200/80",
+                          readOnly && "opacity-75 cursor-not-allowed"
                         )}
                       >
                         <div className={cn(
@@ -837,37 +845,42 @@ export default function DentalChart({ initialData = {}, onSave }: DentalChartPro
                 <div>
                   <div className="flex items-center gap-2 mb-4">
                     <FileEdit size={14} className="text-indigo-500" />
-                    <h5 className="text-xs font-black text-slate-700 uppercase tracking-wider">ملاحظات الطبيب وتوصيات العلاج</h5>
+                    <h5 className="text-xs font-black text-slate-700 uppercase tracking-wider">ملاحظات الطبيب وتوصيات العلاج {readOnly && "(عرض فقط)"}</h5>
                   </div>
                   
                   {/* Notes Textarea */}
                   <textarea
                     id="tooth-custom-notes"
                     value={teeth[selectedTooth]?.notes || ""}
-                    onChange={(e) => handleNotesChange(e.target.value)}
-                    placeholder="أدخل أي ملاحظات علاجية إضافية، تاريخ البدء، تفاصيل الحشوة أو نوع التلبيسة..."
-                    className="w-full h-24 bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-xs font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-300 focus:bg-white outline-none transition-all resize-none text-right"
+                    onChange={(e) => !readOnly && handleNotesChange(e.target.value)}
+                    readOnly={readOnly}
+                    placeholder={readOnly ? "لا توجد ملاحظات إضافية." : "أدخل أي ملاحظات علاجية إضافية، تاريخ البدء، تفاصيل الحشوة أو نوع التلبيسة..."}
+                    className={cn(
+                      "w-full h-24 bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-xs font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-300 focus:bg-white outline-none transition-all resize-none text-right",
+                      readOnly && "cursor-not-allowed bg-slate-100/60"
+                    )}
                     dir="rtl"
                   />
                 </div>
 
                 {/* Templates presets */}
-                <div className="mt-4">
-                  <div className="text-[10px] text-slate-400 font-bold mb-2">قوالب وتوصيات سريعة بنقرة واحدة:</div>
-                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto scrollbar-none pb-1">
-                    {noteTemplates.map((tpl, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => handleNotesChange(tpl)}
-                        className="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-600 hover:text-indigo-700 px-2 py-1 rounded-lg block font-medium transition-all text-right max-w-full truncate"
-                      >
-                        {tpl}
-                      </button>
-                    ))}
+                {!readOnly && (
+                  <div className="mt-4">
+                    <div className="text-[10px] text-slate-400 font-bold mb-2">قوالب وتوصيات سريعة بنقرة واحدة:</div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto scrollbar-none pb-1">
+                      {noteTemplates.map((tpl, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => handleNotesChange(tpl)}
+                          className="text-[9px] bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-600 hover:text-indigo-700 px-2 py-1 rounded-lg block font-medium transition-all text-right max-w-full truncate"
+                        >
+                          {tpl}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-
+                )}
               </div>
 
             </div>

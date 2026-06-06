@@ -870,13 +870,10 @@ async function startServer() {
       const patientData = { ...req.body, createdAt: new Date().toISOString() };
       const newDoc = await localDb.patients.insert(patientData);
       
-      // Sync to cloud Firestore immediately and synchronously so we don't return until it's saved in the cloud
+      // Sync to cloud Firestore in the background so we return the result instantly without blocking on network/internet latency
       if (firestoreDb) {
-        try {
-          await setDoc(doc(firestoreDb, "patients", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() });
-        } catch (fErr) {
-          console.warn("[Cloud Sync Error] Failed to write new patient to Firestore, continuing with NeDB:", fErr);
-        }
+        setDoc(doc(firestoreDb, "patients", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() })
+          .catch(fErr => console.warn("[Cloud Sync Error] Failed to write new patient to Firestore in background:", fErr));
       }
       res.json(newDoc);
     } catch (err) { res.status(500).json(err); }
@@ -890,12 +887,10 @@ async function startServer() {
     try {
       await localDb.patients.update({ _id: req.params.id }, { $set: req.body });
       
+      // Update cloud Firestore in the background
       if (firestoreDb) {
-        try {
-          await setDoc(doc(firestoreDb, "patients", req.params.id), { ...req.body, id: req.params.id, syncedAt: new Date().toISOString() }, { merge: true });
-        } catch (fErr) {
-          console.warn("[Cloud Sync Error] Failed to update patient in Firestore:", fErr);
-        }
+        setDoc(doc(firestoreDb, "patients", req.params.id), { ...req.body, id: req.params.id, syncedAt: new Date().toISOString() }, { merge: true })
+          .catch(fErr => console.warn("[Cloud Sync Error] Failed to update patient in Firestore in background:", fErr));
       }
       res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -939,12 +934,10 @@ async function startServer() {
       const apptData = { ...req.body, createdAt: new Date().toISOString() };
       const newDoc = await localDb.appointments.insert(apptData);
       
+      // Update cloud in background
       if (firestoreDb) {
-        try {
-          await setDoc(doc(firestoreDb, "appointments", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() });
-        } catch (fErr) {
-          console.warn("[Cloud Sync Error] Failed to write appointment to Firestore:", fErr);
-        }
+        setDoc(doc(firestoreDb, "appointments", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() })
+          .catch(fErr => console.warn("[Cloud Sync Error] Failed to write appointment to Firestore in background:", fErr));
       }
       res.json(newDoc);
     } catch (err) { res.status(500).json(err); }
@@ -954,12 +947,10 @@ async function startServer() {
     try {
       await localDb.appointments.remove({ _id: req.params.id }, {});
       
+      // Update cloud in background
       if (firestoreDb) {
-        try {
-          await deleteDoc(doc(firestoreDb, "appointments", req.params.id));
-        } catch (fErr) {
-          console.warn("[Cloud Sync Error] Failed to delete appointment from Firestore:", fErr);
-        }
+        deleteDoc(doc(firestoreDb, "appointments", req.params.id))
+          .catch(fErr => console.warn("[Cloud Sync Error] Failed to delete appointment from Firestore in background:", fErr));
       }
       res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -970,12 +961,10 @@ async function startServer() {
       const { status } = req.body;
       await localDb.appointments.update({ _id: req.params.id }, { $set: { status } });
       
+      // Update cloud in background
       if (firestoreDb) {
-        try {
-          await setDoc(doc(firestoreDb, "appointments", req.params.id), { status, syncedAt: new Date().toISOString() }, { merge: true });
-        } catch (fErr) {
-          console.warn("[Cloud Sync Error] Failed to update appointment status in Firestore:", fErr);
-        }
+        setDoc(doc(firestoreDb, "appointments", req.params.id), { status, syncedAt: new Date().toISOString() }, { merge: true })
+          .catch(fErr => console.warn("[Cloud Sync Error] Failed to update appointment status in Firestore in background:", fErr));
       }
       res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -1018,30 +1007,17 @@ async function startServer() {
       const visitData = { ...req.body, date: new Date().toISOString() };
       const newDoc = await localDb.visits.insert(visitData);
       
+      // Update cloud in background
       if (firestoreDb) {
-        try {
-          await setDoc(doc(firestoreDb, "visits", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() });
-        } catch (fErr) {
-          console.warn("[Cloud Sync Error] Failed to write visit to Firestore:", fErr);
-        }
+        setDoc(doc(firestoreDb, "visits", newDoc._id), { ...newDoc, syncedAt: new Date().toISOString() })
+          .catch(fErr => console.warn("[Cloud Sync Error] Failed to write visit to Firestore in background:", fErr));
       }
       res.json(newDoc);
     } catch (err) { res.status(500).json(err); }
   });
 
   app.delete("/api/visits/:id", async (req, res) => {
-    try {
-      await localDb.visits.remove({ _id: req.params.id }, {});
-      
-      if (firestoreDb) {
-        try {
-          await deleteDoc(doc(firestoreDb, "visits", req.params.id));
-        } catch (fErr) {
-          console.warn("[Cloud Sync Error] Failed to delete visit from Firestore:", fErr);
-        }
-      }
-      res.json({ success: true });
-    } catch (err) { res.status(500).json(err); }
+    return res.status(403).json({ error: "تم إيقاف تفعيل حذف المعاينات والزيارات الطبية לחماية السجلات من التغيير كلياً." });
   });
 
   // Manual Trigger for Cloud-to-Local synchronization and backups
